@@ -20,18 +20,18 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
     private val cache = Cache()
 
     override fun getClassLikeSymbolByFqName(classId: ClassId): FirClassLikeSymbol<*>? {
-        return cache.classCache.getOrPut(classId) {
+        return cache.classCache.lookupCacheOrCalculate(classId) {
             providers.firstNotNullResult { it.getClassLikeSymbolByFqName(classId) }
         }
     }
 
     @OptIn(ExperimentalStdlibApi::class, FirSymbolProviderInternals::class)
     override fun getTopLevelCallableSymbols(packageFqName: FqName, name: Name): List<FirCallableSymbol<*>> {
-        return cache.topLevelCallableSymbolsCache.getOrPut(CallableId(packageFqName, null, name)) {
+        return cache.topLevelCallableSymbolsCache.lookupCacheOrCalculate(CallableId(packageFqName, null, name)) {
             buildList {
                 providers.forEach { it.getTopLevelCallableSymbolsTo(this, packageFqName, name) }
             }
-        }
+        }!!
     }
 
     @FirSymbolProviderInternals
@@ -44,7 +44,7 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
     }
 
     override fun getPackage(fqName: FqName): FqName? {
-        return cache.packageCache.getOrPut(fqName) {
+        return cache.packageCache.lookupCacheOrCalculate(fqName) {
             providers.firstNotNullResult { it.getPackage(fqName) }
         }
     }
@@ -61,5 +61,15 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
         val packageCache: MutableMap<FqName, FqName?> = mutableMapOf()
         val classCache: MutableMap<ClassId, FirClassLikeSymbol<*>?> = mutableMapOf()
         val topLevelCallableSymbolsCache: MutableMap<CallableId, List<FirCallableSymbol<*>>> = mutableMapOf()
+    }
+
+    private inline fun <K, V : Any?> MutableMap<K, V>.lookupCacheOrCalculate(key: K, crossinline l: (K) -> V): V? {
+        return if (containsKey(key)) {
+            this[key]
+        } else {
+            val calculated = l(key)
+            this[key] = calculated
+            calculated
+        }
     }
 }
