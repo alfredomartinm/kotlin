@@ -40,7 +40,9 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
     }
 
     override fun getNestedClassifierScope(classId: ClassId): FirScope? {
-        return providers.firstNotNullResult { it.getNestedClassifierScope(classId) }
+        return cache.nestedClassifierScopeCache.lookupCacheOrCalculate(classId) {
+            providers.firstNotNullResult { it.getNestedClassifierScope(classId) }
+        }
     }
 
     override fun getPackage(fqName: FqName): FqName? {
@@ -61,6 +63,7 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
         val packageCache: MutableMap<FqName, FqName?> = mutableMapOf()
         val classCache: MutableMap<ClassId, FirClassLikeSymbol<*>?> = mutableMapOf()
         val topLevelCallableSymbolsCache: MutableMap<CallableId, List<FirCallableSymbol<*>>> = mutableMapOf()
+        val nestedClassifierScopeCache: MutableMap<ClassId, FirScope?> = mutableMapOf()
     }
 
     private inline fun <K, V : Any?> MutableMap<K, V>.lookupCacheOrCalculate(key: K, crossinline l: (K) -> V): V? {
