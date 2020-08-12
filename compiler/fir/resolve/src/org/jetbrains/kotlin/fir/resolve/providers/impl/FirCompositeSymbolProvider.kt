@@ -6,7 +6,9 @@
 package org.jetbrains.kotlin.fir.resolve.providers.impl
 
 import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProvider
+import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProviderInternals
 import org.jetbrains.kotlin.fir.scopes.FirScope
+import org.jetbrains.kotlin.fir.symbols.CallableId
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
 import org.jetbrains.kotlin.fir.symbols.impl.FirClassLikeSymbol
 import org.jetbrains.kotlin.name.ClassId
@@ -15,8 +17,26 @@ import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.utils.addToStdlib.firstNotNullResult
 
 class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSymbolProvider() {
+    private val cache = Cache()
+
+    override fun getClassLikeSymbolByFqName(classId: ClassId): FirClassLikeSymbol<*>? {
+        return cache.classCache.getOrPut(classId) {
+            providers.firstNotNullResult { it.getClassLikeSymbolByFqName(classId) }
+        }
+    }
+
+    @OptIn(ExperimentalStdlibApi::class, FirSymbolProviderInternals::class)
     override fun getTopLevelCallableSymbols(packageFqName: FqName, name: Name): List<FirCallableSymbol<*>> {
-        return providers.flatMap { it.getTopLevelCallableSymbols(packageFqName, name) }
+        return cache.topLevelCallableSymbolsCache.getOrPut(CallableId(packageFqName, null, name)) {
+            buildList {
+                providers.forEach { it.getTopLevelCallableSymbolsTo(this, packageFqName, name) }
+            }
+        }
+    }
+
+    @FirSymbolProviderInternals
+    override fun getTopLevelCallableSymbolsTo(destination: MutableList<FirCallableSymbol<*>>, packageFqName: FqName, name: Name) {
+        error("Should not be called")
     }
 
     override fun getNestedClassifierScope(classId: ClassId): FirScope? {
@@ -24,11 +44,9 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
     }
 
     override fun getPackage(fqName: FqName): FqName? {
-        return providers.firstNotNullResult { it.getPackage(fqName) }
-    }
-
-    override fun getClassLikeSymbolByFqName(classId: ClassId): FirClassLikeSymbol<*>? {
-        return providers.firstNotNullResult { it.getClassLikeSymbolByFqName(classId) }
+        return cache.packageCache.getOrPut(fqName) {
+            providers.firstNotNullResult { it.getPackage(fqName) }
+        }
     }
 
     override fun getAllCallableNamesInPackage(fqName: FqName): Set<Name> {
@@ -37,5 +55,11 @@ class FirCompositeSymbolProvider(val providers: List<FirSymbolProvider>) : FirSy
 
     override fun getClassNamesInPackage(fqName: FqName): Set<Name> {
         return providers.flatMapTo(mutableSetOf()) { it.getClassNamesInPackage(fqName) }
+    }
+
+    private class Cache {
+        val packageCache: MutableMap<FqName, FqName?> = mutableMapOf()
+        val classCache: MutableMap<ClassId, FirClassLikeSymbol<*>?> = mutableMapOf()
+        val topLevelCallableSymbolsCache: MutableMap<CallableId, List<FirCallableSymbol<*>>> = mutableMapOf()
     }
 }

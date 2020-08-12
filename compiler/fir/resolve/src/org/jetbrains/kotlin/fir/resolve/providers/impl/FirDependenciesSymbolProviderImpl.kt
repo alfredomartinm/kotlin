@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.dependenciesWithoutSelf
 import org.jetbrains.kotlin.fir.resolve.providers.AbstractFirSymbolProvider
 import org.jetbrains.kotlin.fir.resolve.firSymbolProvider
+import org.jetbrains.kotlin.fir.resolve.providers.FirSymbolProviderInternals
 import org.jetbrains.kotlin.fir.scopes.FirScope
 import org.jetbrains.kotlin.fir.symbols.CallableId
 import org.jetbrains.kotlin.fir.symbols.impl.FirCallableSymbol
@@ -26,10 +27,9 @@ open class FirDependenciesSymbolProviderImpl(val session: FirSession) : Abstract
         }.toList()
     }
 
-    override fun getTopLevelCallableSymbols(packageFqName: FqName, name: Name): List<FirCallableSymbol<*>> {
-        return topLevelCallableCache.lookupCacheOrCalculate(CallableId(packageFqName, null, name)) {
-            dependencyProviders.flatMap { provider -> provider.getTopLevelCallableSymbols(packageFqName, name) }
-        } ?: emptyList()
+    @FirSymbolProviderInternals
+    override fun getTopLevelCallableSymbolsTo(destination: MutableList<FirCallableSymbol<*>>, packageFqName: FqName, name: Name) {
+        dependencyProviders.flatMapTo(destination) { provider -> provider.getTopLevelCallableSymbols(packageFqName, name) }
     }
 
     override fun getNestedClassifierScope(classId: ClassId): FirScope? {
@@ -37,25 +37,21 @@ open class FirDependenciesSymbolProviderImpl(val session: FirSession) : Abstract
     }
 
     override fun getClassLikeSymbolByFqName(classId: ClassId): FirClassLikeSymbol<*>? {
-        return classCache.lookupCacheOrCalculate(classId) {
-            for (provider in dependencyProviders) {
-                provider.getClassLikeSymbolByFqName(classId)?.let {
-                    return@lookupCacheOrCalculate it
-                }
+        for (provider in dependencyProviders) {
+            provider.getClassLikeSymbolByFqName(classId)?.let {
+                return it
             }
-            null
         }
+        return null
     }
 
     override fun getPackage(fqName: FqName): FqName? {
-        return packageCache.lookupCacheOrCalculate(fqName) {
-            for (provider in dependencyProviders) {
-                provider.getPackage(fqName)?.let {
-                    return@lookupCacheOrCalculate it
-                }
+        for (provider in dependencyProviders) {
+            provider.getPackage(fqName)?.let {
+                return it
             }
-            null
         }
+        return null
     }
 
     override fun getAllCallableNamesInPackage(fqName: FqName): Set<Name> {
